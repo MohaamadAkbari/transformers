@@ -64,6 +64,12 @@ class Qwen2VLProcessor(ProcessorMixin):
     def __init__(self, image_processor=None, tokenizer=None, video_processor=None, chat_template=None, **kwargs):
         self.image_token = "<|image_pad|>" if not hasattr(tokenizer, "image_token") else tokenizer.image_token
         self.video_token = "<|video_pad|>" if not hasattr(tokenizer, "video_token") else tokenizer.video_token
+        self.audio_token = "<|audio_pad|>" if not hasattr(tokenizer, "audio_token") else tokenizer.audio_token
+        self.audio_token_id = (
+            tokenizer.audio_token_id
+            if getattr(tokenizer, "audio_token_id", None)
+            else tokenizer.convert_tokens_to_ids(self.audio_token)
+        )
         self.image_token_id = (
             tokenizer.image_token_id
             if getattr(tokenizer, "image_token_id", None)
@@ -81,6 +87,7 @@ class Qwen2VLProcessor(ProcessorMixin):
         images: Optional[ImageInput] = None,
         text: Union[TextInput, PreTokenizedInput, list[TextInput], list[PreTokenizedInput]] = None,
         videos: Optional[VideoInput] = None,
+        audios: Optional[list[np.ndarray]] = None,
         **kwargs: Unpack[Qwen2VLProcessorKwargs],
     ) -> BatchFeature:
         """
@@ -123,7 +130,7 @@ class Qwen2VLProcessor(ProcessorMixin):
             **kwargs,
         )
 
-        image_inputs = videos_inputs = {}
+        image_inputs = videos_inputs = audio_inputs = {}
         if images is not None:
             image_inputs = self.image_processor(images=images, **output_kwargs["images_kwargs"])
             image_grid_thw = image_inputs["image_grid_thw"]
@@ -156,6 +163,27 @@ class Qwen2VLProcessor(ProcessorMixin):
                     text[i] = text[i].replace(self.video_token, "<|placeholder|>" * num_video_tokens, 1)
                     index += 1
                 text[i] = text[i].replace("<|placeholder|>", self.video_token)
+        
+        audio_lengths = None
+        if audios is not None:
+            # Expect audios is a list (one per placeholder) matching occurrences of audio_token
+            # First compute audio_lengths list
+            audio_lengths = []
+            for audio_signal in audios:
+                length_i = audio_signal.shape[0]  # or your token-unit conversion
+                audio_lengths.append(length_i)
+            # Now substitute tokens in text
+            index = 0
+            for i in range(len(text)):
+                while self.audio_token in text[i]:
+                    num_audio_tokens = audio_lengths[index]
+                    text[i] = text[i].replace(
+                        self.audio_token,
+                        "<|placeholder|>" * num_audio_tokens,
+                        1
+                    )
+                    index += 1
+                text[i] = text[i].replace("<|placeholder|>", self.audio_token)
 
         return_tensors = output_kwargs["text_kwargs"].pop("return_tensors", None)
         return_mm_token_type_ids = output_kwargs["text_kwargs"].pop("return_mm_token_type_ids", False)
@@ -168,7 +196,15 @@ class Qwen2VLProcessor(ProcessorMixin):
             mm_token_type_ids[array_ids == self.image_token_id] = 1
             text_inputs["mm_token_type_ids"] = mm_token_type_ids.tolist()
 
-        return BatchFeature(data={**text_inputs, **image_inputs, **videos_inputs}, tensor_type=return_tensors)
+        if audios is not None:
+            # build concatenated tensor of audio tokens
+            all_audio_token_ids = []
+            for length_i in audio_lengths:
+                all_audio_token_ids.extend([self.audio_token_id] * length_i)
+            audio_token_ids = np.array(all_audio_token_ids, dtype=np.int64)
+            audio_inputs = {"audio_token_ids": audio_token_ids, "audio_lengths": audio_lengths}
+
+        return BatchFeature(data={**text_inputs, **image_inputs, **videos_inputs, **audio_inputs}, tensor_type=return_tensors)
 
     def _get_num_multimodal_tokens(self, image_sizes=None, video_sizes=None, **kwargs):
         """
