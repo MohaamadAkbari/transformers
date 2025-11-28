@@ -1165,7 +1165,22 @@ class Qwen2VLModel(Qwen2VLPreTrainedModel):
         super().__init__(config)
         self.visual = Qwen2VisionTransformerPretrainedModel._from_config(config.vision_config)
         self.language_model = Qwen2VLTextModel._from_config(config.text_config)
+        
+        # Ensure audio_config.hidden_size matches the text model's hidden_size
+        # This is critical for the projection layer to output the correct dimension
+        if config.audio_config.hidden_size != config.hidden_size:
+            config.audio_config.hidden_size = config.hidden_size
+        
         self.audio_encoder = Qwen2AudioEncoder._from_config(config.audio_config)
+        
+        # Double-check: if projection layer was created with wrong size, recreate it
+        if hasattr(self.audio_encoder, 'projection') and self.audio_encoder.projection.out_features != config.hidden_size:
+            self.audio_encoder.projection = nn.Linear(
+                self.audio_encoder.projection.in_features,
+                config.hidden_size,
+                bias=False
+            )
+        
         self.rope_deltas = None  # cache rope_deltas here
 
         # Initialize weights and apply final processing
