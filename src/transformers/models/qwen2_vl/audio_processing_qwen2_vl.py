@@ -287,23 +287,13 @@ class Qwen2VLAudioProcessor(SequenceFeatureExtractor):
         else:
             raw_speech = audios
 
-        # always return batch
+        # Always process as a list (even for single audio)
+        # Note: We don't pad here - we'll concatenate all audios into a long tensor
         if not is_batched:
-            raw_speech = [np.asarray([raw_speech]).T]
+            raw_speech = [raw_speech]
 
-        batched_speech = BatchFeature({"input_features": raw_speech})
-
-        # Convert into correct format for padding (using inherited pad method)
-        padded_inputs = self.pad(
-            batched_speech,
-            padding=padding,
-            max_length=max_length if max_length else self.n_samples,
-            truncation=truncation,
-            pad_to_multiple_of=pad_to_multiple_of,
-            return_attention_mask=return_attention_mask or do_normalize,
-        )
-
-        # Calculate audio_lengths from original raw_speech before padding
+        # Calculate audio_lengths from original raw_speech (before feature extraction)
+        # This tracks the length of each audio for later use in breaking the long input
         audio_lengths = []
         for raw_speech_i in raw_speech:
             # Calculate duration in seconds
@@ -314,38 +304,58 @@ class Qwen2VLAudioProcessor(SequenceFeatureExtractor):
             num_tokens = max(1, num_tokens)
             audio_lengths.append(num_tokens)
 
-        # Zero-mean and unit-variance normalization (if requested)
-        if do_normalize:
-            padded_inputs["input_features"] = self.zero_mean_unit_var_norm(
-                padded_inputs["input_features"],
-                attention_mask=padded_inputs.get("attention_mask"),
-                padding_value=self.padding_value,
-            )
-            padded_inputs["input_features"] = np.stack(padded_inputs["input_features"], axis=0)
-
-        # Make sure list is in array format
-        input_features = padded_inputs.get("input_features").transpose(2, 0, 1)
-
-        # Extract mel-filter bank features
+        # Extract mel-filter bank features for each audio separately
+        # Then concatenate them into a single long tensor (similar to how images are concatenated)
         extract_fbank_features = (
             self._torch_extract_fbank_features if is_torch_available() else self._np_extract_fbank_features
         )
-        input_features = extract_fbank_features(input_features[0], device)
-
-        if isinstance(input_features[0], list):
-            padded_inputs["input_features"] = [np.asarray(feature, dtype=np.float32) for feature in input_features]
-        else:
-            padded_inputs["input_features"] = input_features
-
+        
+        # Process each audio separately to get features
+        all_features = []
+        all_attention_masks = []
+        for raw_speech_i in raw_speech:
+            # Ensure correct shape: (samples,) -> (1, samples) for feature extraction
+            waveform_for_extraction = raw_speech_i
+            if waveform_for_extraction.ndim == 1:
+                waveform_for_extraction = waveform_for_extraction[np.newaxis, :]
+            
+            # Truncate if needed (before feature extraction)
+            if truncation and max_length is not None and len(waveform_for_extraction[0]) > max_length:
+                waveform_for_extraction = waveform_for_extraction[:, :max_length]
+            
+            # Extract features for this audio
+            features = extract_fbank_features(waveform_for_extraction, device)
+            # features shape: (1, n_mels, n_frames) -> (n_mels, n_frames)
+            if features.ndim == 3:
+                features = features[0]  # Remove batch dimension: (n_mels, n_frames)
+            all_features.append(features)
+            
+            # Create attention mask for this audio (all ones since we're not padding here)
+            if return_attention_mask:
+                n_frames = features.shape[1]
+                all_attention_masks.append(np.ones(n_frames, dtype=np.int32))
+        
+        # Concatenate all audio features along the time dimension (axis=1) to create a long tensor
+        # This matches the pattern used for images where all patches are concatenated
+        concatenated_features = np.concatenate(all_features, axis=1)  # Shape: (n_mels, total_frames)
+        
+        # Zero-mean and unit-variance normalization (if requested)
+        if do_normalize:
+            # Normalize the concatenated features
+            mean = concatenated_features.mean(axis=1, keepdims=True)
+            std = concatenated_features.std(axis=1, keepdims=True)
+            concatenated_features = (concatenated_features - mean) / (std + 1e-10)
+        
+        # Store as (1, n_mels, total_frames) to match expected format
+        # Add batch dimension for consistency with other processors
+        padded_inputs = BatchFeature({
+            "input_features": concatenated_features[np.newaxis, :, :]  # Shape: (1, n_mels, total_frames)
+        })
+        
         if return_attention_mask:
-            # Rescale from sample to feature dimension
-            rescaled_attention_mask = padded_inputs["attention_mask"][:, :: self.hop_length]
-
-            # The STFT computation produces L//hop_length + 1 frames, but we skip the last frame.
-            # This means we need to trim the rescaled attention mask to match the actual number of frames.
-            if padded_inputs["attention_mask"].shape[1] % self.hop_length != 0:
-                rescaled_attention_mask = rescaled_attention_mask[:, :-1]
-            padded_inputs["attention_mask"] = rescaled_attention_mask
+            # Concatenate attention masks along time dimension
+            concatenated_attention_mask = np.concatenate(all_attention_masks, axis=0)  # Shape: (total_frames,)
+            padded_inputs["attention_mask"] = concatenated_attention_mask[np.newaxis, :]  # Shape: (1, total_frames)
 
         if return_tensors is not None:
             padded_inputs = padded_inputs.convert_to_tensors(return_tensors)
