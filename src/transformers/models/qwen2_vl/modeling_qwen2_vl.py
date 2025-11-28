@@ -1498,10 +1498,32 @@ class Qwen2VLModel(Qwen2VLPreTrainedModel):
 
         n_audio_tokens = special_audio_mask.sum()
         special_audio_mask = special_audio_mask.unsqueeze(-1).expand_as(inputs_embeds).to(inputs_embeds.device)
-        if audio_features is not None and inputs_embeds[special_audio_mask].numel() != audio_features.numel():
-            raise ValueError(
-                f"Audio features and audio tokens do not match: tokens: {n_audio_tokens}, features {audio_features.shape[0]}"
-            )
+        if audio_features is not None:
+            # Check if the number of audio embeddings matches the number of audio tokens
+            # audio_features shape: (num_audio_embeddings, hidden_size)
+            # inputs_embeds[special_audio_mask] should have num_audio_tokens * hidden_size elements
+            # Compare total elements (same logic as images/videos)
+            audio_mask_elements = inputs_embeds[special_audio_mask].numel()
+            audio_feature_elements = audio_features.numel()
+            # Calculate expected elements: n_audio_tokens * hidden_size
+            n_audio_tokens_val = n_audio_tokens.item() if isinstance(n_audio_tokens, torch.Tensor) else n_audio_tokens
+            expected_elements = n_audio_tokens_val * inputs_embeds.shape[-1]
+            
+            if audio_mask_elements != audio_feature_elements:
+                num_audio_embeddings = audio_features.shape[0]
+                num_audio_token_embeddings = audio_mask_elements // inputs_embeds.shape[-1] if audio_mask_elements > 0 else 0
+                raise ValueError(
+                    f"Audio features and audio tokens do not match: "
+                    f"tokens: {n_audio_tokens_val}, "
+                    f"token embeddings: {num_audio_token_embeddings}, "
+                    f"feature embeddings: {num_audio_embeddings}, "
+                    f"mask elements: {audio_mask_elements}, "
+                    f"feature elements: {audio_feature_elements}, "
+                    f"expected elements: {expected_elements}, "
+                    f"hidden_size: {inputs_embeds.shape[-1]}, "
+                    f"audio_features.shape: {audio_features.shape}, "
+                    f"inputs_embeds.shape: {inputs_embeds.shape}"
+                )
 
         return special_image_mask, special_video_mask, special_audio_mask
 
