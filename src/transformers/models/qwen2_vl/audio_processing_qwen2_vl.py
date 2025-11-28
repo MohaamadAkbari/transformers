@@ -78,7 +78,7 @@ class Qwen2VLAudioProcessor(SequenceFeatureExtractor):
             Number of audio tokens per second of audio. Used to calculate the number of tokens for a given audio length.
     """
 
-    model_input_names = ["padded_inputs", "audio_lengths"]
+    model_input_names = ["input_features"]
 
     def __init__(
         self,
@@ -275,7 +275,7 @@ class Qwen2VLAudioProcessor(SequenceFeatureExtractor):
         if is_batched_numpy and len(audios.shape) > 2:
             raise ValueError(f"Only mono-channel audio is supported for input to {self}")
         is_batched = is_batched_numpy or (
-            isinstance(audios, (list, tuple)) and (isinstance(audios[0], (np.ndarray, tuple, list)))
+            isinstance(audios, (list, tuple)) and len(audios) > 0 and (isinstance(audios[0], (np.ndarray, tuple, list)))
         )
 
         if is_batched:
