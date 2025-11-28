@@ -19,7 +19,7 @@
 # limitations under the License.
 """Audio processor class for Qwen2-VL."""
 
-from typing import Optional, TypedDict, Union
+from typing import Any, Optional, TypedDict, Union
 
 import numpy as np
 
@@ -376,6 +376,22 @@ class Qwen2VLAudioProcessor(SequenceFeatureExtractor):
         duration_seconds = audio_length_samples / sampling_rate
         num_tokens = int(duration_seconds * self.audio_tokens_per_second)
         return max(1, num_tokens)
+
+    def to_dict(self) -> dict[str, Any]:
+        """
+        Serializes this instance to a Python dictionary.
+
+        Returns:
+            `dict[str, Any]`: Dictionary of all the attributes that make up this audio processor instance.
+        """
+        import copy
+
+        output = copy.deepcopy(self.__dict__)
+        output["feature_extractor_type"] = self.__class__.__name__
+        # Remove non-serializable attributes if any
+        if "mel_filters" in output:
+            del output["mel_filters"]
+        return output
 
 
 __all__ = ["Qwen2VLAudioProcessor"]
