@@ -155,11 +155,10 @@ class Qwen2VLProcessor(ProcessorMixin):
         if audios is not None:
             audio_processor_output = self.audio_processor(audios=audios, **output_kwargs.get("audios_kwargs", {}))
             # Extract padded_inputs and audio_lengths from the audio processor output
-            padded_inputs = audio_processor_output["padded_inputs"]
+            # padded_inputs is already a dict (extracted from BatchFeature in audio processor)
             audio_lengths = audio_processor_output["audio_lengths"]
-            # Store both in audio_inputs for return
             audio_inputs = {
-                "padded_inputs": padded_inputs,
+                "padded_inputs": audio_processor_output["padded_inputs"],
                 "audio_lengths": audio_lengths,
             }
 

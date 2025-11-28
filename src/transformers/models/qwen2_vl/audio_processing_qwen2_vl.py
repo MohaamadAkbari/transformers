@@ -350,10 +350,17 @@ class Qwen2VLAudioProcessor(SequenceFeatureExtractor):
         if return_tensors is not None:
             padded_inputs = padded_inputs.convert_to_tensors(return_tensors)
 
-        # Return both padded_inputs and audio_lengths
+        # Extract the actual data dict from padded_inputs (BatchFeature) to avoid nested BatchFeature issues
+        # padded_inputs contains "input_features" and optionally "attention_mask"
+        if isinstance(padded_inputs, BatchFeature):
+            padded_inputs_dict = dict(padded_inputs)
+        else:
+            padded_inputs_dict = padded_inputs
+
+        # Return both padded_inputs data and audio_lengths
         return BatchFeature(
             data={
-                "padded_inputs": padded_inputs,
+                "padded_inputs": padded_inputs_dict,
                 "audio_lengths": audio_lengths,
             },
             tensor_type=return_tensors,
