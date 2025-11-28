@@ -819,7 +819,8 @@ class Qwen2AudioEncoderLayer(GradientCheckpointingLayer):
         hidden_states = self.self_attn_layer_norm(hidden_states)
         
         if WhisperAttention is not None:
-            hidden_states, attn_weights, _ = self.self_attn(
+            # WhisperAttention returns (attn_output, attn_weights) - only 2 values
+            hidden_states, attn_weights = self.self_attn(
                 hidden_states=hidden_states,
                 attention_mask=attention_mask,
                 output_attentions=output_attentions,
