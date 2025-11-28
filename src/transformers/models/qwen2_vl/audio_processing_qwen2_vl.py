@@ -59,8 +59,8 @@ class Qwen2VLAudioProcessor(SequenceFeatureExtractor):
     Fourier Transform` which should match pytorch's `torch.stft` equivalent.
 
     Args:
-        feature_size (`int`, *optional*, defaults to 80):
-            The feature dimension of the extracted features.
+        feature_size (`int`, *optional*, defaults to 128):
+            The feature dimension of the extracted features. Defaults to 128 to match Whisper-large-v3-turbo.
         sampling_rate (`int`, *optional*, defaults to `16000`):
             The sampling rate at which the audio files should be digitalized expressed in hertz (Hz).
         hop_length (`int`, *optional*, defaults to 160):
@@ -82,7 +82,7 @@ class Qwen2VLAudioProcessor(SequenceFeatureExtractor):
 
     def __init__(
         self,
-        feature_size: int = 80,
+        feature_size: int = 128,
         sampling_rate: int = 16000,
         hop_length: int = 160,
         chunk_length: int = 30,
