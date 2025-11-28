@@ -133,7 +133,8 @@ class Qwen2VLProcessor(ProcessorMixin):
             - **pixel_values_videos** -- Pixel values of videos to be fed to a model. Returned when `videos` is not `None`.
             - **image_grid_thw** -- List of image 3D grid in LLM. Returned when `images` is not `None`.
             - **video_grid_thw** -- List of video 3D grid in LLM. Returned when `videos` is not `None`.
-            - **padded_inputs** -- Padded and processed audio features (BatchFeature from Whisper-style feature extraction). Returned when `audios` is not `None`.
+            - **input_features** -- Padded and processed audio features (mel-spectrogram features). Returned when `audios` is not `None`.
+            - **attention_mask** -- Attention mask for audio features. Returned when `audios` is not `None` and `return_attention_mask=True`.
             - **audio_lengths** -- List of audio lengths in tokens for each audio signal. Returned when `audios` is not `None`.
         """
         output_kwargs = self._merge_kwargs(
@@ -155,10 +156,13 @@ class Qwen2VLProcessor(ProcessorMixin):
         if audios is not None:
             audio_processor_output = self.audio_processor(audios=audios, **output_kwargs.get("audios_kwargs", {}))
             # Extract padded_inputs and audio_lengths from the audio processor output
-            # padded_inputs is already a dict (extracted from BatchFeature in audio processor)
+            # padded_inputs is a dict containing "input_features" and optionally "attention_mask"
+            # Flatten it to match the structure of image_inputs and videos_inputs
+            padded_inputs_dict = audio_processor_output["padded_inputs"]
             audio_lengths = audio_processor_output["audio_lengths"]
+            # Flatten padded_inputs into the main audio_inputs dict
             audio_inputs = {
-                "padded_inputs": audio_processor_output["padded_inputs"],
+                **padded_inputs_dict,  # This will include "input_features" and "attention_mask" if present
                 "audio_lengths": audio_lengths,
             }
 
