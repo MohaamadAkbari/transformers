@@ -1252,7 +1252,13 @@ class Qwen2VLModel(Qwen2VLPreTrainedModel):
                 vision_tokens = input_ids[vision_start_indices + 1]
                 image_nums = (vision_tokens == image_token_id).sum()
                 video_nums = (vision_tokens == video_token_id).sum()
-                audio_nums = (input_ids == audio_token_id).sum() if audio_lengths is not None else 0
+                # Count actual audio tokens in input_ids, but also check if audio_lengths is provided
+                audio_nums_in_ids = (input_ids == audio_token_id).sum().item()
+                # Use audio_lengths count if provided, otherwise use actual count in input_ids
+                if audio_lengths is not None and len(audio_lengths) > 0:
+                    audio_nums = len(audio_lengths)
+                else:
+                    audio_nums = audio_nums_in_ids
                 input_tokens = input_ids.tolist()
                 llm_pos_ids_list: list = []
                 st = 0
@@ -1266,8 +1272,17 @@ class Qwen2VLModel(Qwen2VLPreTrainedModel):
                         ed_video = input_tokens.index(video_token_id, st)
                     else:
                         ed_video = len(input_tokens) + 1
-                    if audio_token_id in input_tokens and remain_audios > 0:
-                        ed_audio = input_tokens.index(audio_token_id, st)
+                    # For audio, check if token exists starting from position st
+                    # Audio tokens might not be in the list if they were already processed
+                    if remain_audios > 0:
+                        try:
+                            # Check if token exists in the remaining part of the list
+                            if audio_token_id in input_tokens[st:]:
+                                ed_audio = input_tokens.index(audio_token_id, st)
+                            else:
+                                ed_audio = len(input_tokens) + 1
+                        except (ValueError, IndexError):
+                            ed_audio = len(input_tokens) + 1
                     else:
                         ed_audio = len(input_tokens) + 1
                     
@@ -1296,17 +1311,25 @@ class Qwen2VLModel(Qwen2VLPreTrainedModel):
                         num_audio_tokens = audio_lengths[audio_index] if audio_lengths and audio_index < len(audio_lengths) else 1
                         audio_index += 1
                         remain_audios -= 1
-                        ed = ed_audio
                         
-                        # For audio, use sequential 1D position IDs (like text)
-                        text_len = ed - st
+                        # If audio token was found, use its position; otherwise, use current position
+                        if ed_audio < len(input_tokens):
+                            ed = ed_audio
+                            text_len = ed - st
+                        else:
+                            # Audio token not found - this can happen if tokens were already replaced
+                            # Use current position and assume audio tokens come after text
+                            text_len = len(input_tokens) - st if st < len(input_tokens) else 0
+                            ed = len(input_tokens)
+                        
                         st_idx = llm_pos_ids_list[-1].max() + 1 if len(llm_pos_ids_list) > 0 else 0
-                        llm_pos_ids_list.append(torch.arange(text_len).view(1, -1).expand(3, -1) + st_idx)
+                        if text_len > 0:
+                            llm_pos_ids_list.append(torch.arange(text_len).view(1, -1).expand(3, -1) + st_idx)
                         
                         # Audio tokens get sequential position IDs (all 3 dimensions same, like text)
                         audio_pos_ids = torch.arange(num_audio_tokens).view(1, -1).expand(3, -1) + text_len + st_idx
                         llm_pos_ids_list.append(audio_pos_ids)
-                        st = ed + num_audio_tokens
+                        st = ed + num_audio_tokens if ed_audio < len(input_tokens) else len(input_tokens)
                         continue
                     
                     # Handle image/video with 3D position IDs
