@@ -856,7 +856,7 @@ class Qwen2AudioEncoderLayer(GradientCheckpointingLayer):
         return outputs
 
 
-@auto_docstring
+@auto_docstring(custom_intro="Audio encoder for Qwen2-VL compatible with Whisper-large-v3-turbo architecture.")
 class Qwen2AudioEncoder(Qwen2VLPreTrainedModel):
     r"""
     Audio encoder for Qwen2-VL compatible with Whisper-large-v3-turbo architecture.
