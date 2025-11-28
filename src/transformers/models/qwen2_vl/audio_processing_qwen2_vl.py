@@ -278,18 +278,41 @@ class Qwen2VLAudioProcessor(SequenceFeatureExtractor):
             isinstance(audios, (list, tuple)) and len(audios) > 0 and (isinstance(audios[0], (np.ndarray, tuple, list)))
         )
 
+        # Convert to list of 1D arrays (samples,)
         if is_batched:
-            raw_speech = [np.asarray([speech], dtype=np.float32).T for speech in audios]
+            # If batched, convert each to 1D array
+            raw_speech = []
+            for speech in audios:
+                speech_array = np.asarray(speech, dtype=np.float32)
+                # Ensure it's 1D: (samples,)
+                if speech_array.ndim > 1:
+                    speech_array = speech_array.squeeze()
+                if speech_array.ndim == 0:
+                    speech_array = speech_array[np.newaxis]
+                raw_speech.append(speech_array)
         elif not is_batched and not isinstance(audios, np.ndarray):
             raw_speech = np.asarray(audios, dtype=np.float32)
+            # Ensure 1D
+            if raw_speech.ndim > 1:
+                raw_speech = raw_speech.squeeze()
+            if raw_speech.ndim == 0:
+                raw_speech = raw_speech[np.newaxis]
+            raw_speech = [raw_speech]
         elif isinstance(audios, np.ndarray) and audios.dtype is np.dtype(np.float64):
             raw_speech = audios.astype(np.float32)
+            # Ensure 1D
+            if raw_speech.ndim > 1:
+                raw_speech = raw_speech.squeeze()
+            if raw_speech.ndim == 0:
+                raw_speech = raw_speech[np.newaxis]
+            raw_speech = [raw_speech]
         else:
+            # audios is already a 1D numpy array
             raw_speech = audios
-
-        # Always process as a list (even for single audio)
-        # Note: We don't pad here - we'll concatenate all audios into a long tensor
-        if not is_batched:
+            if raw_speech.ndim > 1:
+                raw_speech = raw_speech.squeeze()
+            if raw_speech.ndim == 0:
+                raw_speech = raw_speech[np.newaxis]
             raw_speech = [raw_speech]
 
         # Calculate audio_lengths from original raw_speech (before feature extraction)
@@ -314,16 +337,30 @@ class Qwen2VLAudioProcessor(SequenceFeatureExtractor):
         all_features = []
         all_attention_masks = []
         for raw_speech_i in raw_speech:
-            # Ensure correct shape: (samples,) -> (1, samples) for feature extraction
+            # Ensure correct shape for feature extraction
+            # raw_speech_i might be (samples,), (1, samples), or (samples, 1)
+            # We need (1, samples) for torch.stft
             waveform_for_extraction = raw_speech_i
+            
+            # Flatten to 1D first if needed
+            if waveform_for_extraction.ndim > 1:
+                # If it's (1, samples) or (samples, 1), squeeze to 1D then add batch dim
+                waveform_for_extraction = waveform_for_extraction.squeeze()
+            
+            # Now it should be 1D: (samples,)
+            if waveform_for_extraction.ndim == 0:
+                waveform_for_extraction = waveform_for_extraction[np.newaxis]
+            
+            # Add batch dimension: (samples,) -> (1, samples)
             if waveform_for_extraction.ndim == 1:
                 waveform_for_extraction = waveform_for_extraction[np.newaxis, :]
             
             # Truncate if needed (before feature extraction)
-            if truncation and max_length is not None and len(waveform_for_extraction[0]) > max_length:
+            if truncation and max_length is not None and waveform_for_extraction.shape[1] > max_length:
                 waveform_for_extraction = waveform_for_extraction[:, :max_length]
             
             # Extract features for this audio
+            # waveform_for_extraction should now be (1, samples)
             features = extract_fbank_features(waveform_for_extraction, device)
             # features shape: (1, n_mels, n_frames) -> (n_mels, n_frames)
             if features.ndim == 3:
