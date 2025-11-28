@@ -929,6 +929,9 @@ class Qwen2AudioEncoder(Qwen2VLPreTrainedModel):
         )
         return_dict = return_dict if return_dict is not None else self.config.use_return_dict
 
+        # Convert input_features to match the audio encoder's dtype
+        input_features = input_features.to(dtype=self.conv1.weight.dtype)
+        
         # Whisper-style processing: conv1 + conv2 with GELU
         inputs_embeds = nn.functional.gelu(self.conv1(input_features))
         inputs_embeds = nn.functional.gelu(self.conv2(inputs_embeds))
