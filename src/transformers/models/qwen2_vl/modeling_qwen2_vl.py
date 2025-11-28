@@ -1460,7 +1460,13 @@ class Qwen2VLModel(Qwen2VLPreTrainedModel):
         if audio_lengths is not None:
             # audio_embeds shape: (total_frames, hidden_size)
             # Split based on audio_lengths
-            split_sizes = audio_lengths
+            # Convert to list if it's a tensor
+            if isinstance(audio_lengths, torch.Tensor):
+                split_sizes = audio_lengths.tolist()
+            elif isinstance(audio_lengths, list):
+                split_sizes = audio_lengths
+            else:
+                split_sizes = list(audio_lengths)
             audio_embeds_list = torch.split(audio_embeds, split_sizes, dim=0)
             return list(audio_embeds_list)
         else:
