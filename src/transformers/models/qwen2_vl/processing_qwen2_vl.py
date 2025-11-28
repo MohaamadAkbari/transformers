@@ -86,7 +86,7 @@ class Qwen2VLProcessor(ProcessorMixin):
         # Create default audio processor if not provided
         if audio_processor is None:
             audio_processor = Qwen2VLAudioProcessor()
-        super().__init__(image_processor, tokenizer, video_processor, chat_template=chat_template)
+        super().__init__(image_processor, tokenizer, video_processor, audio_processor, chat_template=chat_template)
         # Set audio_processor as attribute (not passed to super().__init__ as it's not a standard processor attribute)
         self.audio_processor = audio_processor
 
@@ -133,7 +133,7 @@ class Qwen2VLProcessor(ProcessorMixin):
             - **pixel_values_videos** -- Pixel values of videos to be fed to a model. Returned when `videos` is not `None`.
             - **image_grid_thw** -- List of image 3D grid in LLM. Returned when `images` is not `None`.
             - **video_grid_thw** -- List of video 3D grid in LLM. Returned when `videos` is not `None`.
-            - **audio_values** -- Concatenated audio signals. Returned when `audios` is not `None`.
+            - **padded_inputs** -- Padded and processed audio features (BatchFeature from Whisper-style feature extraction). Returned when `audios` is not `None`.
             - **audio_lengths** -- List of audio lengths in tokens for each audio signal. Returned when `audios` is not `None`.
         """
         output_kwargs = self._merge_kwargs(
@@ -153,8 +153,15 @@ class Qwen2VLProcessor(ProcessorMixin):
             video_grid_thw = videos_inputs["video_grid_thw"]
 
         if audios is not None:
-            audio_inputs = self.audio_processor(audios=audios, **output_kwargs.get("audios_kwargs", {}))
-            audio_lengths = audio_inputs["audio_lengths"]
+            audio_processor_output = self.audio_processor(audios=audios, **output_kwargs.get("audios_kwargs", {}))
+            # Extract padded_inputs and audio_lengths from the audio processor output
+            padded_inputs = audio_processor_output["padded_inputs"]
+            audio_lengths = audio_processor_output["audio_lengths"]
+            # Store both in audio_inputs for return
+            audio_inputs = {
+                "padded_inputs": padded_inputs,
+                "audio_lengths": audio_lengths,
+            }
 
         if not isinstance(text, list):
             text = [text]
