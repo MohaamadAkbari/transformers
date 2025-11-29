@@ -1157,7 +1157,13 @@ class Qwen2VLTextModel(Qwen2VLPreTrainedModel):
 @auto_docstring
 class Qwen2VLModel(Qwen2VLPreTrainedModel):
     base_model_prefix = ""
-    _checkpoint_conversion_mapping = {"^model": "language_model"}
+    # Only remap the legacy `model.visual.*` and `model.language_model.*` keys from old checkpoints.
+    # Do NOT touch `model.audio_encoder.*`, otherwise audio weights get wrongly mapped to
+    # `model.language_model.audio_encoder.*` and are treated as unexpected on load.
+    _checkpoint_conversion_mapping = {
+        "^model\\.visual": "visual",
+        "^model\\.language_model": "language_model",
+    }
     # Reference: fix gemma3 grad acc #37208
     accepts_loss_kwargs = False
 
