@@ -1042,7 +1042,8 @@ class Qwen2VLModel(Qwen2VLPreTrainedModel):
     # Do NOT touch `model.audio_encoder.*`, otherwise audio weights get wrongly mapped to
     # `model.language_model.audio_encoder.*` and are treated as unexpected on load.
     _checkpoint_conversion_mapping = {
-        "^model": "language_model",
+        r"^model\.visual": "visual",
+        r"^model\.language_model": "language_model",
     }
     # Reference: fix gemma3 grad acc #37208
     accepts_loss_kwargs = False
@@ -1546,8 +1547,8 @@ class Qwen2VLModel(Qwen2VLPreTrainedModel):
 
 class Qwen2VLForConditionalGeneration(Qwen2VLPreTrainedModel, GenerationMixin):
     _checkpoint_conversion_mapping = {
-        "^visual": "model.visual",
-        r"^model(?!\.(language_model|visual))": "model.language_model",
+        r"^visual": "model.visual",
+        r"^model(?!\.(language_model|visual|audio_encoder))": "model.language_model",
     }
     _tied_weights_keys = {"lm_head.weight": "model.language_model.embed_tokens.weight"}
 
