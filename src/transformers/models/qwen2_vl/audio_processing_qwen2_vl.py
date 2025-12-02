@@ -90,7 +90,7 @@ class Qwen2VLAudioProcessor(SequenceFeatureExtractor):
         padding_value: float = 0.0,
         dither: float = 0.0,
         audio_tokens_per_second: float = 50.0,
-        return_attention_mask: bool = True,
+        return_attention_mask: bool = False,
         **kwargs,
     ) -> None:
         super().__init__(
@@ -315,17 +315,12 @@ class Qwen2VLAudioProcessor(SequenceFeatureExtractor):
                 raw_speech = raw_speech[np.newaxis]
             raw_speech = [raw_speech]
 
-        # Calculate audio_lengths from original raw_speech (before feature extraction)
-        # This tracks the length of each audio for later use in breaking the long input
-        audio_lengths = []
-        for raw_speech_i in raw_speech:
-            # Calculate duration in seconds
-            duration_seconds = len(raw_speech_i) / self.sampling_rate
-            # Calculate number of tokens
-            num_tokens = int(duration_seconds * audio_tokens_per_second)
-            # Ensure at least 1 token
-            num_tokens = max(1, num_tokens)
-            audio_lengths.append(num_tokens)
+        # For Qwen2-VL we use a **fixed** 30s audio window (self.chunk_length)
+        # which corresponds to a fixed number of encoder tokens per audio.
+        # With the default Whisper-style settings (16kHz, hop_length=160, stride 2 conv),
+        # this gives 3000 mel frames and 1500 encoder tokens per 30s chunk.
+        tokens_per_audio = (self.nb_max_frames // 2)
+        audio_lengths = [tokens_per_audio for _ in raw_speech]
 
         # Extract mel-filter bank features for each audio separately
         # Then concatenate them into a single long tensor (similar to how images are concatenated)
@@ -354,10 +349,25 @@ class Qwen2VLAudioProcessor(SequenceFeatureExtractor):
             # Add batch dimension: (samples,) -> (1, samples)
             if waveform_for_extraction.ndim == 1:
                 waveform_for_extraction = waveform_for_extraction[np.newaxis, :]
-            
-            # Truncate if needed (before feature extraction)
-            if truncation and max_length is not None and waveform_for_extraction.shape[1] > max_length:
-                waveform_for_extraction = waveform_for_extraction[:, :max_length]
+
+            # Enforce a **fixed** 30s window (self.n_samples) per audio:
+            # - If longer, truncate (when truncation=True)
+            # - If shorter, pad with zeros (silence) to self.n_samples
+            target_len = self.n_samples
+            current_len = waveform_for_extraction.shape[1]
+
+            if current_len > target_len:
+                if truncation:
+                    waveform_for_extraction = waveform_for_extraction[:, :target_len]
+                else:
+                    raise ValueError(
+                        f"Audio length {current_len} is longer than the supported 30s window ({target_len} samples). "
+                        "Set `truncation=True` to automatically truncate longer audio to 30 seconds."
+                    )
+            elif current_len < target_len:
+                pad_width = target_len - current_len
+                padding = np.full((waveform_for_extraction.shape[0], pad_width), self.padding_value, dtype=np.float32)
+                waveform_for_extraction = np.concatenate([waveform_for_extraction, padding], axis=1)
             
             # Extract features for this audio
             # waveform_for_extraction should now be (1, samples)
@@ -427,7 +437,15 @@ class Qwen2VLAudioProcessor(SequenceFeatureExtractor):
             `int`: Number of audio tokens for the given audio length.
         """
         sampling_rate = sampling_rate if sampling_rate is not None else self.sampling_rate
-        duration_seconds = audio_length_samples / sampling_rate
+
+        # Qwen2-VL uses a fixed 30s window which always yields the same
+        # number of encoder tokens, regardless of the exact audio length.
+        # Anything longer than 30s is truncated, anything shorter is padded.
+        if audio_length_samples > self.n_samples:
+            duration_seconds = self.chunk_length
+        else:
+            duration_seconds = self.chunk_length
+
         num_tokens = int(duration_seconds * self.audio_tokens_per_second)
         return max(1, num_tokens)
 

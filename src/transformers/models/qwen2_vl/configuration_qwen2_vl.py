@@ -205,6 +205,7 @@ class Qwen2VLTextConfig(PreTrainedConfig):
     model_type = "qwen2_vl_text"
     base_config_key = "text_config"
     keys_to_ignore_at_inference = ["past_key_values"]
+    default_theta = 1000000.0
     # Default tensor parallel plan for base model `Qwen2VL`
     base_model_tp_plan = {
         "layers.*.self_attn.q_proj": "colwise",

@@ -52,10 +52,13 @@ from ..qwen2.modeling_qwen2 import (
 from .configuration_qwen2_vl import Qwen2VLConfig, Qwen2VLTextConfig, Qwen2VLVisionConfig, Qwen2VLAudioConfig
 
 try:
-    from ..whisper.modeling_whisper import WhisperEncoderLayer, WhisperAttention
+    from ..whisper.configuration_whisper import WhisperConfig
+    from ..whisper.modeling_whisper import WhisperEncoderLayer, WhisperAttention, WhisperEncoder
 except ImportError:
+    WhisperConfig = None
     WhisperEncoderLayer = None
     WhisperAttention = None
+    WhisperEncoder = None
 
 logger = logging.get_logger(__name__)
 
@@ -770,132 +773,51 @@ class Qwen2VisionTransformerPretrainedModel(Qwen2VLPreTrainedModel):
         return self.merger(hidden_states)
 
 
-class Qwen2AudioEncoderLayer(GradientCheckpointingLayer):
-    """Whisper-compatible encoder layer for Qwen2-VL audio encoder."""
-    
-    def __init__(self, config: Qwen2VLAudioConfig):
-        super().__init__()
-        self.embed_dim = config.d_model
-
-        # Use WhisperAttention if available, otherwise create a simple attention
-        if WhisperAttention is not None:
-            self.self_attn = WhisperAttention(
-                embed_dim=self.embed_dim,
-                num_heads=config.encoder_attention_heads,
-                dropout=config.attention_dropout,
-                config=config,
-            )
-        else:
-            # Fallback: simple multi-head attention
-            self.self_attn = nn.MultiheadAttention(
-                embed_dim=self.embed_dim,
-                num_heads=config.encoder_attention_heads,
-                dropout=config.attention_dropout,
-                batch_first=True,
-            )
-        
-        self.self_attn_layer_norm = nn.LayerNorm(self.embed_dim)
-        self.dropout = config.dropout
-        self.activation_fn = ACT2FN[config.activation_function]
-        self.activation_dropout = config.activation_dropout
-        self.fc1 = nn.Linear(self.embed_dim, config.encoder_ffn_dim)
-        self.fc2 = nn.Linear(config.encoder_ffn_dim, self.embed_dim)
-        self.final_layer_norm = nn.LayerNorm(self.embed_dim)
-
-    def forward(
-        self,
-        hidden_states: torch.Tensor,
-        attention_mask: Optional[torch.Tensor] = None,
-        output_attentions: bool = False,
-    ) -> tuple[torch.Tensor, Optional[torch.Tensor]]:
-        """
-        Args:
-            hidden_states (`torch.FloatTensor`): input to the layer of shape `(batch, seq_len, embed_dim)`
-            attention_mask (`torch.FloatTensor`): attention mask of size `(batch, 1, tgt_len, src_len)`
-            output_attentions (`bool`, *optional*):
-                Whether or not to return the attentions tensors of all attention layers.
-        """
-        residual = hidden_states
-        hidden_states = self.self_attn_layer_norm(hidden_states)
-        
-        if WhisperAttention is not None:
-            # WhisperAttention returns (attn_output, attn_weights) - only 2 values
-            hidden_states, attn_weights = self.self_attn(
-                hidden_states=hidden_states,
-                attention_mask=attention_mask,
-                output_attentions=output_attentions,
-            )
-        else:
-            hidden_states, attn_weights = self.self_attn(
-                hidden_states,
-                hidden_states,
-                hidden_states,
-                attn_mask=attention_mask,
-                need_weights=output_attentions,
-            )
-            if not output_attentions:
-                attn_weights = None
-        
-        hidden_states = nn.functional.dropout(hidden_states, p=self.dropout, training=self.training)
-        hidden_states = residual + hidden_states
-
-        residual = hidden_states
-        hidden_states = self.final_layer_norm(hidden_states)
-        hidden_states = self.activation_fn(self.fc1(hidden_states))
-        hidden_states = nn.functional.dropout(hidden_states, p=self.activation_dropout, training=self.training)
-        hidden_states = self.fc2(hidden_states)
-        hidden_states = nn.functional.dropout(hidden_states, p=self.dropout, training=self.training)
-        hidden_states = residual + hidden_states
-
-        if hidden_states.dtype == torch.float16 and (torch.isinf(hidden_states).any() or torch.isnan(hidden_states).any()):
-            clamp_value = torch.finfo(hidden_states.dtype).max - 1000
-            hidden_states = torch.clamp(hidden_states, min=-clamp_value, max=clamp_value)
-
-        outputs = (hidden_states,)
-        if output_attentions:
-            outputs += (attn_weights,)
-        return outputs
-
-
-@auto_docstring(custom_intro="Audio encoder for Qwen2-VL compatible with Whisper-large-v3-turbo architecture.")
-class Qwen2AudioEncoder(Qwen2VLPreTrainedModel):
-    r"""
-    Audio encoder for Qwen2-VL compatible with Whisper-large-v3-turbo architecture.
-    
-    This encoder uses Whisper's encoder architecture to process mel-spectrogram features
-    and projects them to the text model's hidden dimension for integration.
+class Qwen2AudioEncoderLayer(WhisperEncoderLayer):
     """
+    Thin wrapper around [`WhisperEncoderLayer`] so that Qwen2-VL can
+    reuse the exact Whisper encoder layer implementation while keeping
+    a Qwen-specific class name for backwards compatibility.
+    """
+
+    def __init__(self, config: Qwen2VLAudioConfig):
+        if WhisperEncoderLayer is None:
+            raise ImportError(
+                "WhisperEncoderLayer could not be imported. Make sure the Whisper model is available "
+                "in your `transformers` installation."
+            )
+        # Duck-typed: `WhisperEncoderLayer` only expects the attributes
+        # present on `Qwen2VLAudioConfig` (d_model, encoder_attention_heads, etc.).
+        super().__init__(config)  # type: ignore[arg-type]
+
+
+@auto_docstring(custom_intro="Audio encoder for Qwen2-VL that reuses Whisper's encoder plus a projection layer.")
+class Qwen2AudioEncoder(WhisperEncoder):
+    r"""
+    Audio encoder for Qwen2-VL.
+
+    This module **reuses the original Whisper encoder implementation** (`WhisperEncoder` and
+    `WhisperEncoderLayer`) and only adds a projection on top to map from Whisper's `d_model`
+    to the Qwen2 text model `hidden_size`. The forward keeps the Qwen2-VL specific behavior
+    (variable-length concatenated audio, no strict input length check).
+    """
+
     config_class = Qwen2VLAudioConfig
     config: Qwen2VLAudioConfig
     input_modalities = ["audio"]
     _no_split_modules = []
 
     def __init__(self, config: Qwen2VLAudioConfig) -> None:
-        super().__init__(config)
-        self.dropout = config.dropout
-        self.layerdrop = config.encoder_layerdrop
-
-        embed_dim = config.d_model
-        self.num_mel_bins = config.num_mel_bins
-        self.max_source_positions = config.max_source_positions
-        self.embed_scale = math.sqrt(embed_dim) if config.scale_embedding else 1.0
-
-        # Whisper-style convolutions: conv1 reduces mel bins to d_model, conv2 downsamples by 2
-        self.conv1 = nn.Conv1d(self.num_mel_bins, embed_dim, kernel_size=3, padding=1)
-        self.conv2 = nn.Conv1d(embed_dim, embed_dim, kernel_size=3, stride=2, padding=1)
-
-        # Position embeddings
-        self.embed_positions = nn.Embedding(self.max_source_positions, embed_dim)
-        self.embed_positions.requires_grad_(False)
-
-        # Whisper encoder layers
-        self.layers = nn.ModuleList([Qwen2AudioEncoderLayer(config) for _ in range(config.encoder_layers)])
-        self.layer_norm = nn.LayerNorm(config.d_model)
+        if WhisperEncoder is None:
+            raise ImportError(
+                "WhisperEncoder could not be imported. Make sure the Whisper model is available "
+                "in your `transformers` installation."
+            )
+        # Initialize all Whisper encoder modules (conv, positional embeddings, layers, layer_norm, etc.)
+        super().__init__(config)  # type: ignore[arg-type]
 
         # Projection from Whisper d_model to Qwen2 text hidden_size
         self.projection = nn.Linear(config.d_model, config.hidden_size, bias=False)
-        
-        self.gradient_checkpointing = False
 
     def forward(
         self,
@@ -906,8 +828,8 @@ class Qwen2AudioEncoder(Qwen2VLPreTrainedModel):
         return_dict: Optional[bool] = None,
     ) -> torch.FloatTensor:
         """
-        Forward pass of the audio encoder (Whisper-compatible).
-        
+        Forward pass of the audio encoder.
+
         Args:
             input_features (`torch.FloatTensor` of shape `(batch_size, num_mel_bins, sequence_length)`):
                 Mel-spectrogram features extracted from audio.
@@ -918,8 +840,8 @@ class Qwen2AudioEncoder(Qwen2VLPreTrainedModel):
             output_hidden_states (`bool`, *optional*):
                 Whether or not to return the hidden states.
             return_dict (`bool`, *optional*):
-                Whether or not to return a dict instead of a tuple.
-        
+                Kept for API compatibility, but this encoder currently returns a tensor.
+
         Returns:
             `torch.FloatTensor` of shape `(batch_size * output_seq_len, hidden_size)`:
                 Audio embeddings ready to be integrated into text embeddings.
@@ -930,60 +852,18 @@ class Qwen2AudioEncoder(Qwen2VLPreTrainedModel):
         )
         return_dict = return_dict if return_dict is not None else self.config.use_return_dict
 
-        # Convert input_features to match the audio encoder's dtype
-        input_features = input_features.to(dtype=self.conv1.weight.dtype)
-        
-        # Whisper-style processing: conv1 + conv2 with GELU
-        inputs_embeds = nn.functional.gelu(self.conv1(input_features))
-        inputs_embeds = nn.functional.gelu(self.conv2(inputs_embeds))
+        # Use the original WhisperEncoder forward, which expects a **fixed**
+        # mel sequence length: `max_source_positions * stride(conv1) * stride(conv2)`.
+        # Our audio processor guarantees this by padding/truncating to 30 seconds.
+        encoder_outputs = super().forward(
+            input_features=input_features,
+            attention_mask=attention_mask,
+            output_attentions=output_attentions,
+            output_hidden_states=output_hidden_states,
+            return_dict=True,
+        )
 
-        # Transpose from (batch, channels, time) to (batch, time, channels)
-        inputs_embeds = inputs_embeds.permute(0, 2, 1)
-        batch_size, seq_len, _ = inputs_embeds.shape
-
-        # Add positional embeddings
-        # Create position IDs for the actual sequence length
-        position_ids = torch.arange(seq_len, device=inputs_embeds.device)
-        # Clamp to max_source_positions if needed
-        if seq_len > self.max_source_positions:
-            position_ids = position_ids[:self.max_source_positions]
-            inputs_embeds = inputs_embeds[:, :self.max_source_positions, :]
-            seq_len = self.max_source_positions
-        
-        hidden_states = inputs_embeds + self.embed_positions(position_ids)
-        hidden_states = nn.functional.dropout(hidden_states, p=self.dropout, training=self.training)
-
-        encoder_states = () if output_hidden_states else None
-        all_attentions = () if output_attentions else None
-
-        # Process through encoder layers
-        for idx, encoder_layer in enumerate(self.layers):
-            if output_hidden_states:
-                encoder_states = encoder_states + (hidden_states,)
-            
-            # LayerDrop (see https://huggingface.co/papers/1909.11556)
-            to_drop = False
-            if self.training:
-                dropout_probability = torch.rand([])
-                if dropout_probability < self.layerdrop:
-                    to_drop = True
-
-            if to_drop:
-                layer_outputs = (hidden_states, None)
-            else:
-                layer_outputs = encoder_layer(
-                    hidden_states,
-                    attention_mask=attention_mask,
-                    output_attentions=output_attentions,
-                )
-                hidden_states = layer_outputs[0]
-
-            if output_attentions:
-                all_attentions = all_attentions + (layer_outputs[1],)
-
-        hidden_states = self.layer_norm(hidden_states)
-        if output_hidden_states:
-            encoder_states = encoder_states + (hidden_states,)
+        hidden_states = encoder_outputs.last_hidden_state
 
         # Project from Whisper d_model to Qwen2 text hidden_size
         hidden_states = self.projection(hidden_states)
@@ -991,17 +871,18 @@ class Qwen2AudioEncoder(Qwen2VLPreTrainedModel):
         # Reshape to (batch_size * seq_len, hidden_size) to match text embedding format
         hidden_states = hidden_states.view(-1, hidden_states.shape[-1])
 
+        # For now we keep the simple tensor return to match Qwen2-VL usage.
+        # If needed later, this can be extended to return ModelOutput like WhisperEncoder.
         if not return_dict:
             return hidden_states
-        
+
         return hidden_states
 
 
 @auto_docstring
 class Qwen2VLTextModel(Qwen2VLPreTrainedModel):
     config: Qwen2VLTextConfig
-    input_modalities = "text"
-
+    input_modalities = ("text",)
     def __init__(self, config: Qwen2VLTextConfig):
         super().__init__(config)
         self.padding_idx = config.pad_token_id
@@ -1156,13 +1037,12 @@ class Qwen2VLTextModel(Qwen2VLPreTrainedModel):
 
 @auto_docstring
 class Qwen2VLModel(Qwen2VLPreTrainedModel):
-    base_model_prefix = ""
+    base_model_prefix = "model"
     # Only remap the legacy `model.visual.*` and `model.language_model.*` keys from old checkpoints.
     # Do NOT touch `model.audio_encoder.*`, otherwise audio weights get wrongly mapped to
     # `model.language_model.audio_encoder.*` and are treated as unexpected on load.
     _checkpoint_conversion_mapping = {
-        "^model\\.visual": "visual",
-        "^model\\.language_model": "language_model",
+        "^model": "language_model",
     }
     # Reference: fix gemma3 grad acc #37208
     accepts_loss_kwargs = False
