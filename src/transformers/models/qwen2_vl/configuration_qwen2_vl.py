@@ -111,6 +111,7 @@ class Qwen2VLAudioConfig(PreTrainedConfig):
         encoder_layerdrop=0.0,
         scale_embedding=False,
         initializer_range=0.02,
+        init_std=0.02,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -129,6 +130,9 @@ class Qwen2VLAudioConfig(PreTrainedConfig):
         self.encoder_layerdrop = encoder_layerdrop
         self.scale_embedding = scale_embedding
         self.initializer_range = initializer_range
+        # Required by Whisper's weight initialization routines when we reuse WhisperEncoder.
+        # Mirrors `WhisperConfig.init_std`.
+        self.init_std = init_std
 
 
 class Qwen2VLTextConfig(PreTrainedConfig):
