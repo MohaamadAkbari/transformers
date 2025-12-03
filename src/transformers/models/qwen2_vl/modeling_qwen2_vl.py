@@ -1038,15 +1038,11 @@ class Qwen2VLTextModel(Qwen2VLPreTrainedModel):
 @auto_docstring
 class Qwen2VLModel(Qwen2VLPreTrainedModel):
     base_model_prefix = "model"
-    # Only remap the legacy `model.visual.*` and `model.language_model.*` keys from old checkpoints.
-    # Do NOT touch `model.audio_encoder.*`, otherwise audio weights get wrongly mapped to
-    # `model.language_model.audio_encoder.*` and are treated as unexpected on load.
-    _checkpoint_conversion_mapping = {
-        # Older checkpoints saved from experimental scripts mistakenly stored audio encoder
-        # weights under `model.language_model.audio_encoder.*`. Treat those as legacy and
-        # map them back to the correct `model.audio_encoder.*` module on load.
-        r"^model\.language_model\.audio_encoder": "model.audio_encoder",
-    }
+    # Disable any extra key remapping for this custom Speech model.
+    # We always rebuild from the clean base Qwen2-VL checkpoint, so we don't
+    # need backward-compat conversions here. This avoids accidentally
+    # rewriting `model.audio_encoder.*` keys to nested prefixes when saving.
+    _checkpoint_conversion_mapping = {}
     # Reference: fix gemma3 grad acc #37208
     accepts_loss_kwargs = False
 
@@ -1548,17 +1544,10 @@ class Qwen2VLModel(Qwen2VLPreTrainedModel):
 
 
 class Qwen2VLForConditionalGeneration(Qwen2VLPreTrainedModel, GenerationMixin):
-    _checkpoint_conversion_mapping = {
-        # Map visual-only checkpoints to the current nested `model.visual` layout.
-        r"^visual": "model.visual",
-        # Legacy checkpoints (including your early audio experiments) saved audio encoder
-        # weights as `model.language_model.audio_encoder.*`. On load, redirect those into
-        # the correct `model.audio_encoder.*` module so the weights aren't "unexpected".
-        r"^model\.language_model\.audio_encoder": "model.audio_encoder",
-        # For other legacy keys starting with `model.` (but *not* language_model/visual/audio_encoder),
-        # treat them as belonging to the language model submodule.
-        r"^model(?!\.(language_model|visual|audio_encoder))": "model.language_model",
-    }
+    # Same rationale as for `Qwen2VLModel`: for this speech variant we don't
+    # want any extra checkpoint key remapping. Keys in the saved state dict
+    # should match the module layout directly (e.g. `model.audio_encoder.*`).
+    _checkpoint_conversion_mapping = {}
     _tied_weights_keys = {"lm_head.weight": "model.language_model.embed_tokens.weight"}
 
     def __init__(self, config):
