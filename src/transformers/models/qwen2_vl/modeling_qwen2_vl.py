@@ -1042,7 +1042,7 @@ class Qwen2VLModel(Qwen2VLPreTrainedModel):
     # We always rebuild from the clean base Qwen2-VL checkpoint, so we don't
     # need backward-compat conversions here. This avoids accidentally
     # rewriting `model.audio_encoder.*` keys to nested prefixes when saving.
-    _checkpoint_conversion_mapping = {}
+    _checkpoint_conversion_mapping = {"^model": "language_model"}
     # Reference: fix gemma3 grad acc #37208
     accepts_loss_kwargs = False
 
@@ -1547,7 +1547,11 @@ class Qwen2VLForConditionalGeneration(Qwen2VLPreTrainedModel, GenerationMixin):
     # Same rationale as for `Qwen2VLModel`: for this speech variant we don't
     # want any extra checkpoint key remapping. Keys in the saved state dict
     # should match the module layout directly (e.g. `model.audio_encoder.*`).
-    _checkpoint_conversion_mapping = {}
+    _checkpoint_conversion_mapping = {
+        "^visual": "model.visual",
+        "^audio_encoder": "model.audio_encoder",
+        r"^model(?!\.(language_model|visual|audio_encoder))": "model.language_model",
+    }
     _tied_weights_keys = {"lm_head.weight": "model.language_model.embed_tokens.weight"}
 
     def __init__(self, config):
