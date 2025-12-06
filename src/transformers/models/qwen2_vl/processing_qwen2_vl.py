@@ -217,7 +217,27 @@ class Qwen2VLProcessor(ProcessorMixin):
             mm_token_type_ids[array_ids == self.image_token_id] = 1
             text_inputs["mm_token_type_ids"] = mm_token_type_ids.tolist()
 
-        return BatchFeature(data={**text_inputs, **image_inputs, **videos_inputs, **audio_inputs}, tensor_type=return_tensors)
+        data = {**text_inputs, **image_inputs, **videos_inputs}
+
+        # Separate out audio_lengths so it doesn't get converted
+        audio_lengths = None
+        if "audio_lengths" in audio_inputs:
+            audio_lengths = audio_inputs["audio_lengths"]
+            # Add the rest of audio_inputs (e.g. input_features, attention_mask) to data
+            for k, v in audio_inputs.items():
+                if k != "audio_lengths":
+                    data[k] = v
+        else:
+            # No audio present, just merge everything
+            data.update(audio_inputs)
+
+        batch = BatchFeature(data=data, tensor_type=return_tensors)
+
+        # Reattach audio_lengths as-is (Python list)
+        if audio_lengths is not None:
+            batch["audio_lengths"] = audio_lengths
+
+        return batch
 
     def _get_num_multimodal_tokens(self, image_sizes=None, video_sizes=None, **kwargs):
         """
