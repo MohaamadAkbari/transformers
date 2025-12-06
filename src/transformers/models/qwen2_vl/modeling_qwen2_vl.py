@@ -1157,12 +1157,9 @@ class Qwen2VLModel(Qwen2VLPreTrainedModel):
                 image_nums = (vision_tokens == image_token_id).sum()
                 video_nums = (vision_tokens == video_token_id).sum()
                 # Count actual audio tokens in input_ids, but also check if audio_lengths is provided
-                audio_nums_in_ids = (input_ids == audio_token_id).sum().item()
+                audio_nums_in_ids = int((input_ids == audio_token_id).sum().item())
                 # Use audio_lengths count if provided, otherwise use actual count in input_ids
-                if audio_lengths is not None and len(audio_lengths) > 0:
-                    audio_nums = len(audio_lengths)
-                else:
-                    audio_nums = audio_nums_in_ids
+                audio_nums = audio_nums_in_ids 
                 input_tokens = input_ids.tolist()
                 llm_pos_ids_list: list = []
                 st = 0
