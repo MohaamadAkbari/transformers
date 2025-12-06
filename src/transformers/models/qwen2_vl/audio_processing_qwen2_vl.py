@@ -382,27 +382,23 @@ class Qwen2VLAudioProcessor(SequenceFeatureExtractor):
                 n_frames = features.shape[1]
                 all_attention_masks.append(np.ones(n_frames, dtype=np.int32))
         
-        # Concatenate all audio features along the time dimension (axis=1) to create a long tensor
-        # This matches the pattern used for images where all patches are concatenated
-        concatenated_features = np.concatenate(all_features, axis=1)  # Shape: (n_mels, total_frames)
-        
-        # Zero-mean and unit-variance normalization (if requested)
+        # Stack all audio features along the *batch* dimension:
+        # each entry: (n_mels, n_frames) -> (num_audios, n_mels, n_frames)
+        input_features = np.stack(all_features, axis=0)  # (B, n_mels, n_frames)
+
+        # Optional per-audio normalization
         if do_normalize:
-            # Normalize the concatenated features
-            mean = concatenated_features.mean(axis=1, keepdims=True)
-            std = concatenated_features.std(axis=1, keepdims=True)
-            concatenated_features = (concatenated_features - mean) / (std + 1e-10)
-        
-        # Store as (1, n_mels, total_frames) to match expected format
-        # Add batch dimension for consistency with other processors
+            mean = input_features.mean(axis=2, keepdims=True)
+            std = input_features.std(axis=2, keepdims=True)
+            input_features = (input_features - mean) / (std + 1e-10)
+
         padded_inputs = BatchFeature({
-            "input_features": concatenated_features[np.newaxis, :, :]  # Shape: (1, n_mels, total_frames)
+            "input_features": input_features  # (B, n_mels, n_frames)
         })
-        
-        if return_attention_mask:
-            # Concatenate attention masks along time dimension
-            concatenated_attention_mask = np.concatenate(all_attention_masks, axis=0)  # Shape: (total_frames,)
-            padded_inputs["attention_mask"] = concatenated_attention_mask[np.newaxis, :]  # Shape: (1, total_frames)
+
+        if return_attention_mask and len(all_attention_masks) > 0:
+            attention_mask = np.stack(all_attention_masks, axis=0)  # (B, n_frames)
+            padded_inputs["attention_mask"] = attention_mask
 
         if return_tensors is not None:
             padded_inputs = padded_inputs.convert_to_tensors(return_tensors)
