@@ -154,15 +154,20 @@ class Qwen2VLProcessor(ProcessorMixin):
             video_grid_thw = videos_inputs["video_grid_thw"]
 
         if audios is not None:
-            audio_processor_output = self.audio_processor(audios=audios, **output_kwargs.get("audios_kwargs", {}))
-            # Extract padded_inputs and audio_lengths from the audio processor output
-            # padded_inputs is a dict containing "input_features" and optionally "attention_mask"
-            # Flatten it to match the structure of image_inputs and videos_inputs
+            audios_kwargs = output_kwargs.get("audios_kwargs", {})
+            # If user didn't explicitly override, use the processor's sampling_rate (16000)
+            audios_kwargs.setdefault("sampling_rate", self.audio_processor.sampling_rate)
+
+            audio_processor_output = self.audio_processor(
+                audios=audios,
+                **audios_kwargs,
+            )
+
             padded_inputs_dict = audio_processor_output["padded_inputs"]
             audio_lengths = audio_processor_output["audio_lengths"]
-            # Flatten padded_inputs into the main audio_inputs dict
+
             audio_inputs = {
-                **padded_inputs_dict,  # This will include "input_features" and "attention_mask" if present
+                **padded_inputs_dict,   # "input_features", maybe "attention_mask"
                 "audio_lengths": audio_lengths,
             }
 
