@@ -57,6 +57,82 @@ class Qwen2VLVisionConfig(PreTrainedConfig):
         self.temporal_patch_size = temporal_patch_size
         self.initializer_range = initializer_range
 
+class Qwen2VLAudioConfig(PreTrainedConfig):
+    r"""
+    Configuration class for Qwen2-VL audio encoder (compatible with Whisper-large-v3-turbo).
+    
+    Args:
+        num_mel_bins (`int`, *optional*, defaults to 128):
+            The number of mel-spectrogram bins (matches Whisper-large-v3-turbo).
+        d_model (`int`, *optional*, defaults to 1280):
+            The dimension of the Whisper encoder (matches Whisper-large-v3-turbo).
+        encoder_layers (`int`, *optional*, defaults to 32):
+            Number of encoder layers (matches Whisper-large-v3-turbo).
+        encoder_attention_heads (`int`, *optional*, defaults to 20):
+            Number of attention heads in the encoder (matches Whisper-large-v3-turbo).
+        encoder_ffn_dim (`int`, *optional*, defaults to 5120):
+            Dimension of the feed-forward network in the encoder (matches Whisper-large-v3-turbo).
+        hidden_size (`int`, *optional*, defaults to 8192):
+            The dimension of the text model's hidden states (output dimension after projection).
+        max_source_positions (`int`, *optional*, defaults to 1500):
+            Maximum number of source positions (matches Whisper-large-v3-turbo).
+        dropout (`float`, *optional*, defaults to 0.0):
+            Dropout probability (matches Whisper-large-v3-turbo).
+        attention_dropout (`float`, *optional*, defaults to 0.0):
+            Attention dropout probability (matches Whisper-large-v3-turbo).
+        activation_dropout (`float`, *optional*, defaults to 0.0):
+            Activation dropout probability (matches Whisper-large-v3-turbo).
+        activation_function (`str`, *optional*, defaults to "gelu"):
+            Activation function (matches Whisper-large-v3-turbo).
+        encoder_layerdrop (`float`, *optional*, defaults to 0.0):
+            Layer dropout probability (matches Whisper-large-v3-turbo).
+        scale_embedding (`bool`, *optional*, defaults to False):
+            Whether to scale embeddings (matches Whisper-large-v3-turbo).
+        initializer_range (`float`, *optional*, defaults to 0.02):
+            The standard deviation of the truncated_normal_initializer for initializing all weight matrices.
+    """
+    model_type = "qwen2_vl_audio"
+    base_config_key = "audio_config"
+
+    def __init__(
+        self,
+        num_mel_bins=128,
+        d_model=1280,
+        encoder_layers=32,
+        encoder_attention_heads=20,
+        encoder_ffn_dim=5120,
+        hidden_size=8192, # output dimension after projection
+        max_source_positions=1500,
+        dropout=0.0,
+        attention_dropout=0.0,
+        activation_dropout=0.0,
+        activation_function="gelu",
+        encoder_layerdrop=0.0,
+        scale_embedding=False,
+        initializer_range=0.02,
+        init_std=0.02,
+        **kwargs,
+    ):
+        super().__init__(**kwargs)
+
+        self.num_mel_bins = num_mel_bins
+        self.d_model = d_model
+        self.encoder_layers = encoder_layers
+        self.encoder_attention_heads = encoder_attention_heads
+        self.encoder_ffn_dim = encoder_ffn_dim
+        self.hidden_size = hidden_size
+        self.max_source_positions = max_source_positions
+        self.dropout = dropout
+        self.attention_dropout = attention_dropout
+        self.activation_dropout = activation_dropout
+        self.activation_function = activation_function
+        self.encoder_layerdrop = encoder_layerdrop
+        self.scale_embedding = scale_embedding
+        self.initializer_range = initializer_range
+        # Required by Whisper's weight initialization routines when we reuse WhisperEncoder.
+        # Mirrors `WhisperConfig.init_std`.
+        self.init_std = init_std
+
 
 class Qwen2VLTextConfig(PreTrainedConfig):
     r"""
@@ -132,6 +208,7 @@ class Qwen2VLTextConfig(PreTrainedConfig):
     model_type = "qwen2_vl_text"
     base_config_key = "text_config"
     keys_to_ignore_at_inference = ["past_key_values"]
+    default_theta = 1000000.0
     # Default tensor parallel plan for base model `Qwen2VL`
     base_model_tp_plan = {
         "layers.*.self_attn.q_proj": "colwise",
@@ -168,6 +245,9 @@ class Qwen2VLTextConfig(PreTrainedConfig):
         layer_types: Optional[list[str]] = None,
         attention_dropout: Optional[float] = 0.0,
         rope_parameters: Optional[RopeParameters | dict[str, RopeParameters]] = None,
+        bos_token_id: Optional[int] = 151643,
+        eos_token_id: Optional[int] = 151645,
+        pad_token_id: Optional[int] = None,
         **kwargs,
     ):
         self.vocab_size = vocab_size
@@ -191,8 +271,8 @@ class Qwen2VLTextConfig(PreTrainedConfig):
         self.use_cache = use_cache
         self.attention_dropout = attention_dropout
         # Try to set `rope_scaling` if available, otherwise use `rope_parameters`
-        rope_scaling = kwargs.pop("rope_scaling", None)
-        self.rope_parameters = rope_scaling or rope_parameters
+        # rope_scaling = kwargs.pop("rope_scaling", None)
+        # self.rope_parameters = rope_scaling or rope_parameters
 
         self.layer_types = layer_types
         if self.layer_types is None:
@@ -204,13 +284,36 @@ class Qwen2VLTextConfig(PreTrainedConfig):
             ]
         layer_type_validation(self.layer_types, self.num_hidden_layers)
 
-        # Validate the correctness of rotary position embeddings parameters
-        rope_theta = kwargs.get("rope_theta", 1000000.0)
-        standardize_rope_params(self, rope_theta=rope_theta)
-        if self.rope_parameters["rope_type"] == "mrope":
+        self.rope_parameters = rope_parameters
+        super().__init__(
+            tie_word_embeddings=tie_word_embeddings,
+            bos_token_id=bos_token_id,
+            eos_token_id=eos_token_id,
+            pad_token_id=pad_token_id,
+            ignore_keys_at_rope_validation={"mrope_section"},
+            **kwargs,
+        )
+
+    def convert_rope_params_to_dict(self, ignore_keys_at_rope_validation: Optional[set] = None, **kwargs):
+        rope_scaling = kwargs.pop("rope_scaling", None)
+        self.rope_parameters = rope_scaling or self.rope_parameters
+        self.rope_parameters = self.rope_parameters if self.rope_parameters is not None else {}
+
+        # Standardize and validate the correctness of rotary position embeddings parameters
+        self.rope_parameters.setdefault("rope_theta", kwargs.pop("rope_theta", self.default_theta))
+        if self.rope_parameters.get("rope_type", self.rope_parameters.get("type")) == "mrope":
             self.rope_parameters["rope_type"] = "default"
-        rope_config_validation(self, ignore_keys={"mrope_section"})
-        super().__init__(tie_word_embeddings=tie_word_embeddings, **kwargs)
+        self.standardize_rope_params()
+        self.validate_rope(ignore_keys=ignore_keys_at_rope_validation)
+        return kwargs
+
+        # Validate the correctness of rotary position embeddings parameters
+        # rope_theta = kwargs.get("rope_theta", 1000000.0)
+        # standardize_rope_params(self, rope_theta=rope_theta)
+        # if self.rope_parameters["rope_type"] == "mrope":
+        #     self.rope_parameters["rope_type"] = "default"
+        # rope_config_validation(self, ignore_keys={"mrope_section"})
+        # super().__init__(tie_word_embeddings=tie_word_embeddings, **kwargs)
 
 
 class Qwen2VLConfig(PreTrainedConfig):
@@ -252,17 +355,25 @@ class Qwen2VLConfig(PreTrainedConfig):
     ```"""
 
     model_type = "qwen2_vl"
-    sub_configs = {"vision_config": Qwen2VLVisionConfig, "text_config": Qwen2VLTextConfig}
+    sub_configs = {
+        "vision_config": Qwen2VLVisionConfig, 
+        "text_config": Qwen2VLTextConfig,
+        "audio_config": Qwen2VLAudioConfig,
+    }
     keys_to_ignore_at_inference = ["past_key_values"]
 
     def __init__(
         self,
         text_config=None,
         vision_config=None,
+        audio_config=None,
         image_token_id=151655,
         video_token_id=151656,
+        audio_token_id=151658,
         vision_start_token_id=151652,
         vision_end_token_id=151653,
+        audio_start_token_id=151657,
+        audio_end_token_id=151659,
         **kwargs,
     ):
         # We need to init super() here so that it does not reset values
@@ -275,6 +386,11 @@ class Qwen2VLConfig(PreTrainedConfig):
         elif vision_config is None:
             self.vision_config = self.sub_configs["vision_config"]()
 
+        if isinstance(audio_config, dict):
+            self.audio_config = self.sub_configs["audio_config"](**audio_config)
+        elif audio_config is None:
+            self.audio_config = self.sub_configs["audio_config"]()
+
         if isinstance(text_config, dict):
             self.text_config = self.sub_configs["text_config"](**text_config)
         elif text_config is None:
@@ -283,6 +399,9 @@ class Qwen2VLConfig(PreTrainedConfig):
 
         self.image_token_id = image_token_id
         self.video_token_id = video_token_id
+        self.audio_token_id = audio_token_id
+        self.audio_start_token_id = audio_start_token_id
+        self.audio_end_token_id = audio_end_token_id
         self.vision_start_token_id = vision_start_token_id
         self.vision_end_token_id = vision_end_token_id
 
@@ -313,4 +432,4 @@ class Qwen2VLConfig(PreTrainedConfig):
         return super().__getattribute__(key)
 
 
-__all__ = ["Qwen2VLConfig", "Qwen2VLTextConfig"]
+__all__ = ["Qwen2VLConfig", "Qwen2VLTextConfig", "Qwen2VLAudioConfig", "Qwen2VLVisionConfig"]
