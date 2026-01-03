@@ -1642,6 +1642,7 @@ class Qwen2VLForConditionalGeneration(Qwen2VLPreTrainedModel, GenerationMixin):
         image_grid_thw=None,
         video_grid_thw=None,
         audio_lengths=None,
+        input_features=None,
         **kwargs,
     ):
         # Overwritten -- in specific circumstances we don't want to forward image inputs to the model
