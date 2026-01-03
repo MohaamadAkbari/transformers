@@ -1142,12 +1142,12 @@ class Qwen2VLModel(Qwen2VLPreTrainedModel):
                     # Find next indices (or INF if none left)
                     INF = len(input_tokens) + 1
 
-                    if has_vision and remain_images > 0 and image_token_id in input_tokens[st:]:
+                    if has_vision and image_grid_thw is not None and remain_images > 0 and image_token_id in input_tokens[st:]:
                         ed_image = input_tokens.index(image_token_id, st)
                     else:
                         ed_image = INF
 
-                    if has_vision and remain_videos > 0 and video_token_id in input_tokens[st:]:
+                    if has_vision and video_grid_thw is not None and remain_videos > 0 and video_token_id in input_tokens[st:]:
                         ed_video = input_tokens.index(video_token_id, st)
                     else:
                         ed_video = INF
@@ -1168,6 +1168,8 @@ class Qwen2VLModel(Qwen2VLPreTrainedModel):
 
                     # 2) Expand the placeholder depending on modality
                     if ed == ed_image:
+                        if image_grid_thw is None:
+                            raise ValueError("image_grid_thw is None but image token found")
                         t, h, w = image_grid_thw[image_index]
                         image_index += 1
                         remain_images -= 1
@@ -1189,6 +1191,8 @@ class Qwen2VLModel(Qwen2VLPreTrainedModel):
                         st = ed + (llm_grid_t * llm_grid_h * llm_grid_w)
 
                     elif ed == ed_video:
+                        if video_grid_thw is None:
+                            raise ValueError("video_grid_thw is None but video token found")
                         t, h, w = video_grid_thw[video_index]
                         video_index += 1
                         remain_videos -= 1
@@ -1209,6 +1213,8 @@ class Qwen2VLModel(Qwen2VLPreTrainedModel):
 
                     else:
                         # AUDIO CASE: expand <audio> into audio_len tokens
+                        if audio_lengths is None:
+                            raise ValueError("audio_lengths is None but audio token found")
                         audio_len = audio_lengths[audio_index]
                         audio_index += 1
                         remain_audios -= 1
