@@ -1187,6 +1187,10 @@ class Qwen2VLModel(Qwen2VLPreTrainedModel):
                     # Choose the earliest placeholder in the remaining sequence
                     ed = min(ed_image, ed_video, ed_audio)
 
+                    # If all placeholders are exhausted, break
+                    if ed == INF:
+                        break
+
                     # 1) Add TEXT positions for the segment before the placeholder
                     text_len = ed - st
                     st_idx = llm_pos_ids_list[-1].max() + 1 if len(llm_pos_ids_list) > 0 else 0
