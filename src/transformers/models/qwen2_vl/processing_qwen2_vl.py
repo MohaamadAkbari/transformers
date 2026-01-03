@@ -200,6 +200,14 @@ class Qwen2VLProcessor(ProcessorMixin):
         return_tensors = output_kwargs["text_kwargs"].pop("return_tensors", None)
         return_mm_token_type_ids = output_kwargs["text_kwargs"].pop("return_mm_token_type_ids", False)
         text_inputs = self.tokenizer(text, **output_kwargs["text_kwargs"], return_tensors=None)
+        
+        # Ensure text_inputs is a dict-like object
+        if not isinstance(text_inputs, (dict, BatchFeature)):
+            raise TypeError(
+                f"Tokenizer returned unexpected type: {type(text_inputs)}. "
+                f"Expected dict or BatchFeature, got {type(text_inputs)}."
+            )
+        
         self._check_special_mm_tokens(text, text_inputs, modalities=["image", "video", "audio"])
 
         if return_mm_token_type_ids:
