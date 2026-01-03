@@ -28,7 +28,7 @@ import numpy as np
 from ...feature_extraction_utils import BatchFeature
 from ...image_utils import ImageInput
 from ...processing_utils import ImagesKwargs, MultiModalData, ProcessingKwargs, ProcessorMixin, Unpack
-from ...tokenization_utils_base import PreTokenizedInput, TextInput
+from ...tokenization_utils_base import BatchEncoding, PreTokenizedInput, TextInput
 from ...utils import logging
 from ...video_utils import VideoInput
 from .audio_processing_qwen2_vl import Qwen2VLAudioProcessor
@@ -218,10 +218,10 @@ class Qwen2VLProcessor(ProcessorMixin):
         text_inputs = self.tokenizer(text, **output_kwargs["text_kwargs"], return_tensors=None)
         
         # Ensure text_inputs is a dict-like object
-        if not isinstance(text_inputs, (dict, BatchFeature)):
+        if not isinstance(text_inputs, (dict, BatchFeature, BatchEncoding)):
             raise TypeError(
                 f"Tokenizer returned unexpected type: {type(text_inputs)}. "
-                f"Expected dict or BatchFeature, got {type(text_inputs)}."
+                f"Expected dict, BatchFeature, or BatchEncoding, got {type(text_inputs)}."
             )
         
         self._check_special_mm_tokens(text, text_inputs, modalities=["image", "video", "audio"])
