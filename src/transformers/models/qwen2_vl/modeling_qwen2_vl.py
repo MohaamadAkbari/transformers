@@ -1142,17 +1142,17 @@ class Qwen2VLModel(Qwen2VLPreTrainedModel):
                     # Find next indices (or INF if none left)
                     INF = len(input_tokens) + 1
 
-                    if has_vision and remain_images > 0 and image_token_id in input_tokens:
+                    if has_vision and remain_images > 0 and image_token_id in input_tokens[st:]:
                         ed_image = input_tokens.index(image_token_id, st)
                     else:
                         ed_image = INF
 
-                    if has_vision and remain_videos > 0 and video_token_id in input_tokens:
+                    if has_vision and remain_videos > 0 and video_token_id in input_tokens[st:]:
                         ed_video = input_tokens.index(video_token_id, st)
                     else:
                         ed_video = INF
 
-                    if has_audio and remain_audios > 0 and audio_token_id in input_tokens:
+                    if has_audio and remain_audios > 0 and audio_token_id in input_tokens[st:]:
                         ed_audio = input_tokens.index(audio_token_id, st)
                     else:
                         ed_audio = INF
