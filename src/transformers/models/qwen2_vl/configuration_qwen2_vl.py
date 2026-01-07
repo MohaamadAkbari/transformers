@@ -14,6 +14,7 @@
 # limitations under the License.
 """Qwen2VL model configuration"""
 
+from typing import Optional
 from ...configuration_utils import PretrainedConfig, layer_type_validation
 from ...modeling_rope_utils import rope_config_validation
 from ...utils import logging
@@ -260,27 +261,27 @@ class Qwen2VLTextConfig(PretrainedConfig):
 
     def __init__(
         self,
-        vocab_size: Optional[int] = 152064,
-        hidden_size: Optional[int] = 8192,
-        intermediate_size: Optional[int] = 29568,
-        num_hidden_layers: Optional[int] = 80,
-        num_attention_heads: Optional[int] = 64,
-        num_key_value_heads: Optional[int] = 8,
-        hidden_act: Optional[str] = "silu",
-        max_position_embeddings: Optional[int] = 32768,
-        initializer_range: Optional[float] = 0.02,
-        rms_norm_eps: Optional[int] = 1e-05,
-        use_cache: Optional[bool] = True,
-        tie_word_embeddings: Optional[bool] = False,
-        use_sliding_window: Optional[bool] = False,
-        sliding_window: Optional[int] = 4096,
-        max_window_layers: Optional[int] = 80,
-        layer_types: Optional[list[str]] = None,
-        attention_dropout: Optional[float] = 0.0,
-        rope_parameters: Optional[RopeParameters | dict[str, RopeParameters]] = None,
-        bos_token_id: Optional[int] = 151643,
-        eos_token_id: Optional[int] = 151645,
-        pad_token_id: Optional[int] = None,
+        vocab_size = 152064,
+        hidden_size = 8192,
+        intermediate_size = 29568,
+        num_hidden_layers = 80,
+        num_attention_heads = 64,
+        num_key_value_heads = 8,
+        hidden_act = "silu",
+        max_position_embeddings = 32768,
+        initializer_range = 0.02,
+        rms_norm_eps = 1e-05,
+        use_cache = True,
+        tie_word_embeddings = False,
+        use_sliding_window = False,
+        sliding_window = 4096,
+        max_window_layers = 80,
+        layer_types = None,
+        attention_dropout = 0.0,
+        rope_parameters = None,
+        bos_token_id = 151643,
+        eos_token_id = 151645,
+        pad_token_id = None,
         **kwargs,
     ):
         self.vocab_size = vocab_size
