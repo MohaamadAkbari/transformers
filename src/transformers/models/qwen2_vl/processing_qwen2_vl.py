@@ -76,31 +76,49 @@ class Qwen2VLProcessor(ProcessorMixin):
     audio_processor_class = "Qwen2VLAudioProcessor"
     tokenizer_class = ("Qwen2Tokenizer", "Qwen2TokenizerFast")
 
-    def __init__(self, image_processor=None, tokenizer=None, video_processor=None, audio_processor=None, chat_template=None, **kwargs):
+    def __init__(
+        self,
+        image_processor=None,
+        video_processor=None,
+        audio_processor=None,
+        tokenizer=None,
+        chat_template=None,
+        **kwargs,
+    ):
+        # tokenizer must exist for token ids
+        if tokenizer is None:
+            raise ValueError("Qwen2VLProcessor requires a tokenizer, but got None.")
+
         self.image_token = "<|image_pad|>" if not hasattr(tokenizer, "image_token") else tokenizer.image_token
         self.video_token = "<|video_pad|>" if not hasattr(tokenizer, "video_token") else tokenizer.video_token
         self.audio_token = "<|audio_pad|>" if not hasattr(tokenizer, "audio_token") else tokenizer.audio_token
+
         self.audio_token_id = (
             tokenizer.audio_token_id
-            if getattr(tokenizer, "audio_token_id", None)
+            if getattr(tokenizer, "audio_token_id", None) is not None
             else tokenizer.convert_tokens_to_ids(self.audio_token)
         )
         self.image_token_id = (
             tokenizer.image_token_id
-            if getattr(tokenizer, "image_token_id", None)
+            if getattr(tokenizer, "image_token_id", None) is not None
             else tokenizer.convert_tokens_to_ids(self.image_token)
         )
         self.video_token_id = (
             tokenizer.video_token_id
-            if getattr(tokenizer, "video_token_id", None)
+            if getattr(tokenizer, "video_token_id", None) is not None
             else tokenizer.convert_tokens_to_ids(self.video_token)
         )
-        # Create default audio processor if not provided
+
         if audio_processor is None:
             audio_processor = Qwen2VLAudioProcessor()
-        super().__init__(image_processor, tokenizer, video_processor, audio_processor, chat_template=chat_template)
-        # Set audio_processor as attribute (not passed to super().__init__ as it's not a standard processor attribute)
-        self.audio_processor = audio_processor
+
+        super().__init__(
+            image_processor=image_processor,
+            video_processor=video_processor,
+            audio_processor=audio_processor,
+            tokenizer=tokenizer,
+            chat_template=chat_template,
+        )
 
     def __call__(
         self,
