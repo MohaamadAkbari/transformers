@@ -331,14 +331,24 @@ class Qwen2VLTextConfig(PretrainedConfig):
             # Only set if the dict actually contains a rope_scaling-like structure
             rope_scaling = rope_parameters.get("rope_scaling", None)
 
+        # If this is mRoPE, expose mrope_section in rope_scaling so attention can read it
+        if rope_scaling is None and isinstance(rope_parameters, dict) and rope_parameters.get("type") == "mrope":
+            mrope_section = rope_parameters.get("mrope_section", None)
+            if mrope_section is not None:
+                rope_scaling = {"mrope_section": mrope_section}
+
         self.rope_scaling = rope_scaling
         self.rope_parameters = rope_parameters
+
+        ignore_keys = kwargs.pop("ignore_keys_at_rope_validation", None)
+        if ignore_keys is None:
+            ignore_keys = ["mrope_section"]
         super().__init__(
             tie_word_embeddings=tie_word_embeddings,
             bos_token_id=bos_token_id,
             eos_token_id=eos_token_id,
             pad_token_id=pad_token_id,
-            ignore_keys_at_rope_validation=["mrope_section"],
+            ignore_keys_at_rope_validation=ignore_keys,
             **kwargs,
         )
 
