@@ -340,6 +340,18 @@ class Qwen2VLTextConfig(PretrainedConfig):
         self.rope_scaling = rope_scaling
         self.rope_parameters = rope_parameters
 
+        # --- Ensure rope_type is always defined (required by rotary embedding init) ---
+        rope_type = kwargs.pop("rope_type", None)
+        if rope_type is None and isinstance(rope_parameters, dict):
+            rope_type = rope_parameters.get("rope_type", None)
+
+        # Qwen2 expects something like "default" here; never leave it as None
+        self.rope_type = rope_type or "default"
+
+        # If we are building rope_scaling for mrope, include rope_type too (harmless, helps some codepaths)
+        if isinstance(self.rope_scaling, dict) and "rope_type" not in self.rope_scaling:
+            self.rope_scaling["rope_type"] = self.rope_type
+
         ignore_keys = kwargs.pop("ignore_keys_at_rope_validation", None)
         if ignore_keys is None:
             ignore_keys = ["mrope_section"]
