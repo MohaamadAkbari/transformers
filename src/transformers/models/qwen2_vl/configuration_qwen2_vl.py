@@ -303,12 +303,16 @@ class Qwen2VLTextConfig(PretrainedConfig):
         self.initializer_range = initializer_range
         self.rms_norm_eps = rms_norm_eps
         self.use_cache = use_cache
-        self.rope_theta = rope_theta
         self.attention_dropout = attention_dropout
         # Try to set `rope_scaling` if available, otherwise use `rope_parameters`
         # rope_scaling = kwargs.pop("rope_scaling", None)
         # self.rope_parameters = rope_scaling or rope_parameters
+        # rope_theta can come either as a direct field (old checkpoints) or inside rope_parameters (newer checkpoints)
+        rope_theta = kwargs.pop("rope_theta", None)
+        if rope_theta is None and isinstance(rope_parameters, dict):
+            rope_theta = rope_parameters.get("rope_theta", None)
 
+        self.rope_theta = rope_theta if rope_theta is not None else 1000000.0
         self.layer_types = layer_types
         if self.layer_types is None:
             self.layer_types = [
