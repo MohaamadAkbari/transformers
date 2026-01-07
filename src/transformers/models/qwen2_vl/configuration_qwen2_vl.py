@@ -55,7 +55,7 @@ class Qwen2VLVisionConfig(PretrainedConfig):
         self.temporal_patch_size = temporal_patch_size
         self.initializer_range = initializer_range
 
-class Qwen2VLAudioConfig(PreTrainedConfig):
+class Qwen2VLAudioConfig(PretrainedConfig):
     r"""
     Configuration class for Qwen2-VL audio encoder (compatible with Whisper-large-v3-turbo).
     
@@ -132,7 +132,7 @@ class Qwen2VLAudioConfig(PreTrainedConfig):
         self.init_std = init_std
 
 
-class Qwen2VLTextConfig(PreTrainedConfig):
+class Qwen2VLTextConfig(PretrainedConfig):
     r"""
     This is the configuration class to store the configuration of a [`Qwen2VLTextModel`]. It is used to instantiate a
     Qwen2-VL model according to the specified arguments, defining the model architecture. Instantiating a configuration
