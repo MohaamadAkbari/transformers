@@ -322,7 +322,16 @@ class Qwen2VLTextConfig(PretrainedConfig):
                 for i in range(self.num_hidden_layers)
             ]
         layer_type_validation(self.layer_types, self.num_hidden_layers)
+        # v4 compatibility: some code expects rope_scaling to exist (even if unused)
+        rope_scaling = kwargs.pop("rope_scaling", None)
 
+        # If your newer configs store everything in rope_parameters, optionally derive rope_scaling from there.
+        # (Most Qwen2-VL uses mrope; rope_scaling is typically None, but this keeps it future-proof.)
+        if rope_scaling is None and isinstance(rope_parameters, dict):
+            # Only set if the dict actually contains a rope_scaling-like structure
+            rope_scaling = rope_parameters.get("rope_scaling", None)
+
+        self.rope_scaling = rope_scaling
         self.rope_parameters = rope_parameters
         super().__init__(
             tie_word_embeddings=tie_word_embeddings,
